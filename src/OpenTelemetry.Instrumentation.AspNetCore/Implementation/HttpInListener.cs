@@ -389,6 +389,87 @@ internal class HttpInListener : ListenerHandler
 #else
             var beforeActionEventData = payload as BeforeActionEventData;
             var template = beforeActionEventData.ActionDescriptor?.AttributeRouteInfo?.Template;
+
+            var routeParameters = beforeActionEventData.ActionDescriptor.Parameters;
+
+            if (this.options.UrlParametersToRedact.Length > 0 && routeParameters.Count > 0 && !string.IsNullOrEmpty(template))
+            {
+                string url;
+
+                // Get all the parameters NOT on the redact list
+                var routeParametersToReplace = this.options.UrlParametersToRedact
+                    .Where(urlParametersToRedact => routeParameters.All(routeParameter => routeParameter.Name != urlParametersToRedact))
+                    .ToArray();
+
+                bool urlHasParametersToRedact = routeParametersToReplace.Length < routeParameters.Count;
+
+                // No parameters to redact
+                if (routeParametersToReplace.Length > 0 && urlHasParametersToRedact)
+                {
+                    var parametersToReplace = routeParametersToReplace
+                        .Select(pName => (Name: pName, Value: beforeActionEventData.RouteData.Values[pName]?.ToString()))
+                        .Where(p => !string.IsNullOrEmpty(p.Value))
+                        .ToArray();
+
+                    // Plus 1 because we have to add a leading /
+                    int urlLength = template.Length + 1;
+
+                    foreach (var parameter in parametersToReplace)
+                    {
+                        urlLength += parameter.Value.Length - (parameter.Name.Length + 2);
+                    }
+
+                    // TODO how should casing be handled? Route might have different casing than the url...
+
+                    url = string.Create(urlLength, (ParametersToReplace: parametersToReplace, Template: template), (result, tuple) =>
+                        {
+                            ReadOnlySpan<char> templateSpan = template.AsSpan();
+
+                            result[0] = '/';
+
+                            int position = 1;
+                            int parameterStartIndex;
+
+                            while ((parameterStartIndex = templateSpan.IndexOf('{')) > 0)
+                            {
+                                int parameterEndIndex = templateSpan.Slice(parameterStartIndex).IndexOf('}');
+
+                                templateSpan.Slice(0, parameterStartIndex).CopyTo(result.Slice(position));
+                                ReadOnlySpan<char> parameterName = templateSpan.Slice(parameterStartIndex + 1, parameterEndIndex - 1);
+
+                                foreach (var ptr in parametersToReplace)
+                                {
+                                    if (parameterName.Equals(ptr.Name, StringComparison.Ordinal))
+                                    {
+                                        ptr.Value.CopyTo(result.Slice(position + parameterStartIndex));
+                                        position += parameterStartIndex + ptr.Value.Length;
+                                        break;
+                                    }
+                                }
+
+                                int templateProcessedLength = parameterStartIndex + parameterName.Length + 2;
+                                templateSpan = templateSpan.Slice(templateProcessedLength); // , templateSpan.Length - templateProcessedLength
+                            }
+                        });
+                }
+                else
+                {
+                    url = "/" + template;
+                }
+
+                if (urlHasParametersToRedact)
+                {
+                    if (this.emitOldAttributes)
+                    {
+                        activity.SetTag(SemanticConventions.AttributeHttpTarget, url);
+                    }
+
+                    if (this.emitNewAttributes)
+                    {
+                        activity.SetTag(SemanticConventions.AttributeUrlPath, url);
+                    }
+                }
+            }
 #endif
             if (!string.IsNullOrEmpty(template))
             {

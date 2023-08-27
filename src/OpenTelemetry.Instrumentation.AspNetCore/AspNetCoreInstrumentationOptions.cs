@@ -44,6 +44,16 @@ public class AspNetCoreInstrumentationOptions
     }
 
     /// <summary>
+    /// Gets or sets a list of url parameters to redact.
+    /// </summary>
+    /// <example>
+    /// <para>UrlParametersToRedact = []: api/account/3473423 ->  api/account/3473423.</para>
+    /// <para>UrlParametersToRedact = ["accountNumber"]: api/account/3473423 -> api/account/{accountNumber}.</para>
+    /// <para>UrlParametersToRedact = ["socialSecurityNumber"]: api/account/3473423 ->  api/account/3473423.</para>
+    /// </example>
+    public string[] UrlParametersToRedact { get; set; } = Array.Empty<string>();
+        
+    /// <summary>
     /// Gets or sets a filter function that determines whether or not to
     /// collect telemetry on a per request basis.
     /// </summary>
